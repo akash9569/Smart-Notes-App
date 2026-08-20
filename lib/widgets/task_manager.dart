@@ -1,3 +1,5 @@
+import 'dart:async';
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../app_theme.dart';
@@ -37,12 +39,15 @@ class Task {
   String priority;
   String dueDate;
   String? dueTime;
+  int durationMinutes; // 0 for untimed / check-in, or >0 for timed tasks (e.g. 15, 30, 45, 60 min)
   String recurrence; // 'Once', 'Daily', 'Weekly', 'Monthly'
   List<String> selectedWeekDays; // ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
   bool isCompleted;
   int streak;
   String? lastCompletedDate;
   List<SubTask> subTasks;
+
+  bool get hasDuration => durationMinutes > 0;
 
   Task({
     required this.id,
@@ -52,6 +57,7 @@ class Task {
     required this.priority,
     required this.dueDate,
     this.dueTime,
+    this.durationMinutes = 0,
     this.recurrence = 'Once',
     List<String>? selectedWeekDays,
     this.isCompleted = false,
@@ -69,6 +75,7 @@ class Task {
         'priority': priority,
         'dueDate': dueDate,
         'dueTime': dueTime,
+        'durationMinutes': durationMinutes,
         'recurrence': recurrence,
         'selectedWeekDays': selectedWeekDays,
         'isCompleted': isCompleted,
@@ -103,12 +110,48 @@ class Task {
       dueDate: json['dueDate']?.toString() ??
           DateFormat('yyyy-MM-dd').format(DateTime.now()),
       dueTime: json['dueTime']?.toString(),
+      durationMinutes:
+          (json['durationMinutes'] is int) ? json['durationMinutes'] : 0,
       recurrence: json['recurrence']?.toString() ?? 'Once',
       selectedWeekDays: parsedDays,
       isCompleted: json['isCompleted'] == true,
       streak: (json['streak'] is int) ? json['streak'] : 0,
       lastCompletedDate: json['lastCompletedDate']?.toString(),
       subTasks: parsedSubtasks,
+    );
+  }
+
+  Task copyWith({
+    String? id,
+    String? title,
+    String? description,
+    String? category,
+    String? priority,
+    String? dueDate,
+    String? dueTime,
+    int? durationMinutes,
+    String? recurrence,
+    List<String>? selectedWeekDays,
+    bool? isCompleted,
+    int? streak,
+    String? lastCompletedDate,
+    List<SubTask>? subTasks,
+  }) {
+    return Task(
+      id: id ?? this.id,
+      title: title ?? this.title,
+      description: description ?? this.description,
+      category: category ?? this.category,
+      priority: priority ?? this.priority,
+      dueDate: dueDate ?? this.dueDate,
+      dueTime: dueTime ?? this.dueTime,
+      durationMinutes: durationMinutes ?? this.durationMinutes,
+      recurrence: recurrence ?? this.recurrence,
+      selectedWeekDays: selectedWeekDays ?? this.selectedWeekDays,
+      isCompleted: isCompleted ?? this.isCompleted,
+      streak: streak ?? this.streak,
+      lastCompletedDate: lastCompletedDate ?? this.lastCompletedDate,
+      subTasks: subTasks ?? this.subTasks,
     );
   }
 
@@ -197,6 +240,7 @@ class _TaskManagerState extends State<TaskManager> {
       baseId: _getNotificationId(task.id),
       taskTitle: task.title,
       dueDate: task.dueDateTime,
+      durationMinutes: task.durationMinutes,
     );
   }
 

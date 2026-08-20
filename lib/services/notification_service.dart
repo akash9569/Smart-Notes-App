@@ -173,6 +173,7 @@ class NotificationService {
     required int baseId,
     required String taskTitle,
     required DateTime dueDate,
+    int durationMinutes = 0,
     List<String>? selectedReminders,
   }) async {
     final int safeBase = baseId.abs() % 10000;
@@ -238,8 +239,14 @@ class NotificationService {
           break;
         case 'exact':
           scheduledDate = dueDate;
-          title = '🚨 Task Due Right Now';
-          body = '"$taskTitle" is due now!';
+          if (durationMinutes > 0) {
+            title = '🔥 Task Time: $taskTitle';
+            body =
+                'It\'s time to work on "$taskTitle" ($durationMinutes min). Focus and get it done! 💪';
+          } else {
+            title = '🚨 Task Due Right Now';
+            body = '"$taskTitle" is due now!';
+          }
           subId = 7;
           break;
       }
@@ -253,11 +260,51 @@ class NotificationService {
         );
       }
     }
+
+    // 5 min before start reminder
+    final fiveMinBeforeStart = dueDate.subtract(const Duration(minutes: 5));
+    if (fiveMinBeforeStart.isAfter(now)) {
+      await scheduleNotification(
+        id: safeBase * 10 + 8,
+        title: '⏰ Starting in 5 Min: $taskTitle',
+        body: 'Get ready! "$taskTitle" is scheduled in 5 minutes.',
+        scheduledDate: fiveMinBeforeStart,
+      );
+    }
+
+    // If task has a duration, schedule end-phase reminders
+    if (durationMinutes > 0) {
+      final endDt = dueDate.add(Duration(minutes: durationMinutes));
+      final int beforeCompleteOffset =
+          durationMinutes > 10 ? 5 : (durationMinutes > 4 ? 2 : 1);
+      final beforeCompleteTime =
+          endDt.subtract(Duration(minutes: beforeCompleteOffset));
+
+      if (beforeCompleteTime.isAfter(now)) {
+        await scheduleNotification(
+          id: safeBase * 10 + 9,
+          title: '⏳ $beforeCompleteOffset Min Remaining: $taskTitle',
+          body:
+              'Almost done! You have $beforeCompleteOffset minutes left for "$taskTitle". Finish strong! 💪',
+          scheduledDate: beforeCompleteTime,
+        );
+      }
+
+      if (endDt.isAfter(now)) {
+        await scheduleNotification(
+          id: safeBase * 10 + 10,
+          title: '🎉 Task Duration Complete: $taskTitle',
+          body:
+              'Awesome work! You finished your $durationMinutes min session for "$taskTitle". Check it off! ✨',
+          scheduledDate: endDt,
+        );
+      }
+    }
   }
 
   Future<void> cancelTaskNotifications(int baseId) async {
     final int safeBase = baseId.abs() % 10000;
-    for (int i = 1; i <= 7; i++) {
+    for (int i = 1; i <= 12; i++) {
       try {
         await _notificationsPlugin.cancel(safeBase * 10 + i);
       } catch (_) {}
@@ -313,41 +360,64 @@ class NotificationService {
     // Start time baseline for today
     final startDt =
         DateTime(now.year, now.month, now.day, parsed['hour']!, parsed['minute']!);
-    // Completion time baseline for today
-    final endDt = startDt.add(Duration(minutes: durationMinutes));
+    final items = <Map<String, dynamic>>[];
 
-    final int beforeCompleteOffset = durationMinutes > 10 ? 5 : (durationMinutes > 4 ? 2 : 1);
-    final beforeCompleteTime = endDt.subtract(Duration(minutes: beforeCompleteOffset));
+    if (durationMinutes <= 0) {
+      // Untimed habit (e.g. "Wake up at 7 AM", "Drink water")
+      // 1. 5 min before reminder
+      items.add({
+        'subId': 1,
+        'title': '⏰ Starting in 5 Min: $habitName',
+        'body': 'Get ready! "$habitName" is scheduled in 5 minutes.',
+        'time': startDt.subtract(const Duration(minutes: 5)),
+      });
+      // 2. At scheduled time
+      items.add({
+        'subId': 2,
+        'title': '🔥 Habit Time: $habitName',
+        'body': 'It\'s time for "$habitName"! Mark it done and keep your streak alive. 💪',
+        'time': startDt,
+      });
+    } else {
+      // Timed habit with session duration
+      final endDt = startDt.add(Duration(minutes: durationMinutes));
+      final int beforeCompleteOffset =
+          durationMinutes > 10 ? 5 : (durationMinutes > 4 ? 2 : 1);
+      final beforeCompleteTime =
+          endDt.subtract(Duration(minutes: beforeCompleteOffset));
 
-    final items = <Map<String, dynamic>>[
-      {
+      // 1. 5 min before start
+      items.add({
         'subId': 1,
         'title': '⏰ Starting in 5 Min: $habitName',
         'body': 'Get ready! "$habitName" starts in 5 minutes.',
         'time': startDt.subtract(const Duration(minutes: 5)),
-      },
-      {
+      });
+      // 2. At start time
+      items.add({
         'subId': 2,
         'title': '🔥 Habit Time: $habitName',
         'body':
             'It\'s time for "$habitName"! Time to spend $durationMinutes min and keep your streak alive.',
         'time': startDt,
-      },
-      {
+      });
+      // 3. 5 min before complete
+      items.add({
         'subId': 3,
         'title': '⏳ $beforeCompleteOffset Min Remaining: $habitName',
         'body':
             'Almost done! You have $beforeCompleteOffset minutes left in your session for "$habitName". Finish strong! 💪',
         'time': beforeCompleteTime,
-      },
-      {
+      });
+      // 4. Session complete
+      items.add({
         'subId': 4,
         'title': '🎉 Habit Session Complete: $habitName',
         'body':
             'Awesome work! You completed $durationMinutes min for "$habitName". Don\'t forget to mark it done!',
         'time': endDt,
-      },
-    ];
+      });
+    }
 
     for (final item in items) {
       final DateTime scheduledTime = item['time'] as DateTime;

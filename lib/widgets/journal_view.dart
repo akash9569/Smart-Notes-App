@@ -1,5 +1,205 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../app_theme.dart';
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Auto-continuation List Text Input Formatter
+// ─────────────────────────────────────────────────────────────────────────────
+class JournalAutoListTextInputFormatter extends TextInputFormatter {
+  @override
+  TextEditingValue formatEditUpdate(
+    TextEditingValue oldValue,
+    TextEditingValue newValue,
+  ) {
+    // Check if a newline was just inserted
+    if (newValue.selection.isCollapsed &&
+        newValue.selection.baseOffset > 0 &&
+        newValue.text[newValue.selection.baseOffset - 1] == '\n') {
+      final selectionLength =
+          oldValue.selection.isValid && !oldValue.selection.isCollapsed
+              ? (oldValue.selection.end - oldValue.selection.start)
+              : 0;
+      if (newValue.text.length != oldValue.text.length - selectionLength + 1) {
+        return newValue;
+      }
+
+      final cursorOffset = newValue.selection.baseOffset;
+      final textBeforeCursor = newValue.text.substring(0, cursorOffset - 1);
+      final lines = textBeforeCursor.split('\n');
+      final previousLine = lines.isNotEmpty ? lines.last : '';
+
+      // 1. Numbered list: e.g. "1. Item" or "  1) Item"
+      final numMatch =
+          RegExp(r'^(\s*)(\d+)([\.\)])\s*(.*)$').firstMatch(previousLine);
+      if (numMatch != null) {
+        final indent = numMatch.group(1) ?? '';
+        final num = int.tryParse(numMatch.group(2) ?? '1') ?? 1;
+        final delim = numMatch.group(3) ?? '.';
+
+        final nextPrefix = '$indent${num + 1}$delim ';
+        final updatedText =
+            newValue.text.replaceRange(cursorOffset, cursorOffset, nextPrefix);
+        return TextEditingValue(
+          text: updatedText,
+          selection:
+              TextSelection.collapsed(offset: cursorOffset + nextPrefix.length),
+        );
+      }
+
+      // 2. Checkbox list: e.g. "[ ] Task" or "[x] Done"
+      final checkMatch =
+          RegExp(r'^(\s*)(\[\s*\]|\[x\])\s*(.*)$', caseSensitive: false)
+              .firstMatch(previousLine);
+      if (checkMatch != null) {
+        final indent = checkMatch.group(1) ?? '';
+
+        final nextPrefix = '$indent[ ] ';
+        final updatedText =
+            newValue.text.replaceRange(cursorOffset, cursorOffset, nextPrefix);
+        return TextEditingValue(
+          text: updatedText,
+          selection:
+              TextSelection.collapsed(offset: cursorOffset + nextPrefix.length),
+        );
+      }
+
+      // 3. Bullet list: e.g. "• Item", "- Item", "* Item", "+ Item"
+      final bulletMatch =
+          RegExp(r'^(\s*)([•\-\*\+])\s*(.*)$').firstMatch(previousLine);
+      if (bulletMatch != null) {
+        final indent = bulletMatch.group(1) ?? '';
+        final symbol = bulletMatch.group(2) ?? '•';
+
+        final nextPrefix = '$indent$symbol ';
+        final updatedText =
+            newValue.text.replaceRange(cursorOffset, cursorOffset, nextPrefix);
+        return TextEditingValue(
+          text: updatedText,
+          selection:
+              TextSelection.collapsed(offset: cursorOffset + nextPrefix.length),
+        );
+      }
+    }
+
+    return newValue;
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Custom Text Editing Controller for Journal Question & Answer Styling
+// ─────────────────────────────────────────────────────────────────────────────
+class JournalTextEditingController extends TextEditingController {
+  final BuildContext Function() contextGetter;
+
+  JournalTextEditingController({
+    super.text,
+    required this.contextGetter,
+  });
+
+  @override
+  TextSpan buildTextSpan({
+    required BuildContext context,
+    TextStyle? style,
+    required bool withComposing,
+  }) {
+    final text = this.text;
+    final ctx = contextGetter();
+    final defaultStyle = style ??
+        TextStyle(
+          color: ctx.themeTextPrimary,
+          fontSize: 15,
+          height: 1.7,
+        );
+    final isDark = Theme.of(ctx).brightness == Brightness.dark;
+
+    final headerStyle = defaultStyle.copyWith(
+      fontWeight: FontWeight.w800,
+      fontSize: 15.5,
+      color: const Color(0xFFF08A82),
+      letterSpacing: 0.5,
+    );
+
+    final questionStyle = defaultStyle.copyWith(
+      fontWeight: FontWeight.w700,
+      color: isDark ? const Color(0xFF93C5FD) : const Color(0xFF2563EB),
+    );
+
+    final bulletPrefixStyle = defaultStyle.copyWith(
+      fontWeight: FontWeight.bold,
+      color: const Color(0xFFF08A82),
+    );
+
+    final answerStyle = defaultStyle.copyWith(
+      fontWeight: FontWeight.normal,
+      color: ctx.themeTextPrimary,
+    );
+
+    final lines = text.split('\n');
+    final spans = <InlineSpan>[];
+
+    for (int i = 0; i < lines.length; i++) {
+      final line = lines[i];
+      final isLast = i == lines.length - 1;
+      final lineWithNewline = isLast ? line : '$line\n';
+
+      final trimmed = line.trim();
+      if (trimmed.startsWith('🌅') ||
+          trimmed.startsWith('⚡') ||
+          trimmed.startsWith('🌙') ||
+          trimmed.startsWith('🌸') ||
+          trimmed.startsWith('🚀') ||
+          trimmed.startsWith('🌿') ||
+          trimmed.startsWith('☀️') ||
+          trimmed.startsWith('🏆') ||
+          trimmed.startsWith('🎯') ||
+          trimmed.startsWith('🔋') ||
+          trimmed.startsWith('💡') ||
+          trimmed.startsWith('📈') ||
+          trimmed.startsWith('📅')) {
+        spans.add(TextSpan(text: lineWithNewline, style: headerStyle));
+      } else if (trimmed.startsWith('Q:') ||
+          trimmed.startsWith('Q1:') ||
+          trimmed.startsWith('Q2:') ||
+          trimmed.startsWith('Q3:') ||
+          trimmed.startsWith('Q4:') ||
+          trimmed.startsWith('Q5:') ||
+          trimmed.startsWith('Q6:') ||
+          trimmed.startsWith('Q7:') ||
+          trimmed.startsWith('Q8:') ||
+          trimmed.startsWith('Q9:') ||
+          RegExp(r'^Q\d+:').hasMatch(trimmed) ||
+          RegExp(r'^\d+\.\s.*(\?|:)$').hasMatch(trimmed) ||
+          (trimmed.endsWith('?') &&
+              !trimmed.startsWith('•') &&
+              !trimmed.startsWith('-') &&
+              !trimmed.startsWith('*'))) {
+        spans.add(TextSpan(text: lineWithNewline, style: questionStyle));
+      } else if (trimmed.startsWith('• ') ||
+          trimmed.startsWith('- ') ||
+          trimmed.startsWith('* ') ||
+          RegExp(r'^\d+[\.\)]\s').hasMatch(trimmed) ||
+          trimmed.startsWith('[ ] ') ||
+          trimmed.startsWith('[x] ')) {
+        final prefixMatch =
+            RegExp(r'^(\s*)([•\-\*]|\d+[\.\)]|\[\s*\]|\[x\])\s*')
+                .firstMatch(line);
+        if (prefixMatch != null) {
+          final prefix = prefixMatch.group(0)!;
+          final answer = line.substring(prefix.length);
+          spans.add(TextSpan(text: prefix, style: bulletPrefixStyle));
+          spans.add(TextSpan(
+              text: isLast ? answer : '$answer\n', style: answerStyle));
+        } else {
+          spans.add(TextSpan(text: lineWithNewline, style: answerStyle));
+        }
+      } else {
+        spans.add(TextSpan(text: lineWithNewline, style: answerStyle));
+      }
+    }
+
+    return TextSpan(children: spans);
+  }
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Journal Entry Model
@@ -65,25 +265,62 @@ class JournalTemplate {
 
 const List<JournalTemplate> kJournalTemplates = [
   JournalTemplate(
+    id: 'daily_full',
+    title: 'Daily Journal (Full Day)',
+    category: 'Daily',
+    description: 'All-in-one daily journal with morning intentions, daily gratitude, and evening reflection in one place.',
+    icon: Icons.wb_twilight_rounded,
+    color: Color(0xFFF08A82),
+    defaultContent: '''🌅 MORNING INTENTIONS & GRATITUDE
+Q: What are 3 things you are grateful for this morning?
+• 
+• 
+• 
+
+Q: What are your top 3 priority goals for today?
+• 
+• 
+• 
+
+Q: What is your positive affirmation or mindset for today?
+• 
+
+
+🌙 EVENING REVIEW & GRATITUDE
+Q: What are 3 great things that happened today?
+• 
+• 
+• 
+
+Q: What moments of gratitude, joy, or kindness did you experience today?
+• 
+• 
+
+Q: What did you learn today, or what could be improved?
+• 
+
+Q: What is your #1 focus and intention for tomorrow?
+• 
+''',
+  ),
+  JournalTemplate(
     id: 'morning_reflection',
     title: 'Morning Reflection',
     category: 'Daily',
     description: 'Set your intentions, gratitude, and top priorities for the day ahead.',
     icon: Icons.wb_sunny_rounded,
     color: Color(0xFFF59E0B),
-    defaultContent: '''☀️ 1. I am grateful for:
-• 
-• 
-• 
-
-🎯 2. What would make today great?
-• 
+    defaultContent: '''☀️ MORNING REFLECTION
+Q: What are 3 things you are grateful for this morning?
 • 
 
-✨ 3. Daily Affirmation:
-"I am focused, calm, and capable of handling whatever comes my way."
+Q: What would make today great and meaningful?
+• 
 
-🧠 4. Today's Top Priority:
+Q: What is your daily affirmation for today?
+• 
+
+Q: What is your #1 top priority today?
 • 
 ''',
   ),
@@ -94,18 +331,17 @@ const List<JournalTemplate> kJournalTemplates = [
     description: 'Reflect on your wins, key learnings, and unwind peacefully before sleep.',
     icon: Icons.nights_stay_rounded,
     color: Color(0xFF8B5CF6),
-    defaultContent: '''🏆 1. 3 Amazing things that happened today:
-• 
-• 
-• 
-
-💡 2. What did I learn today?
+    defaultContent: '''🌙 EVENING REVIEW
+Q: What are 3 amazing things that happened today?
 • 
 
-🔄 3. How could I have made today even better?
+Q: What did you learn or discover today?
 • 
 
-🌟 4. Tomorrow's #1 Intention:
+Q: How could you have made today even better?
+• 
+
+Q: What is your #1 intention for tomorrow?
 • 
 ''',
   ),
@@ -116,16 +352,17 @@ const List<JournalTemplate> kJournalTemplates = [
     description: 'Cultivate deep positivity and appreciation for everyday moments.',
     icon: Icons.favorite_rounded,
     color: Color(0xFFF472B6),
-    defaultContent: '''🌸 1. A small everyday joy from today:
+    defaultContent: '''🌸 5-MIN GRATITUDE
+Q: What is a small everyday joy you noticed today?
 • 
 
-❤️ 2. Someone I truly appreciate & why:
+Q: Who is someone you truly appreciate and why?
 • 
 
-🌿 3. Something about myself I am proud of:
+Q: What is something about yourself you are proud of?
 • 
 
-🌍 4. A comfort or opportunity I am thankful for:
+Q: What comfort or opportunity are you thankful for?
 • 
 ''',
   ),
@@ -136,8 +373,9 @@ const List<JournalTemplate> kJournalTemplates = [
     description: 'Clear mental clutter, worries, thoughts, and stream of consciousness.',
     icon: Icons.psychology_rounded,
     color: Color(0xFF3B82F6),
-    defaultContent: '''⚡ Brain Dump (unfiltered stream of consciousness, thoughts, tasks, worries):
-
+    defaultContent: '''⚡ BRAIN DUMP & DECLUTTER
+Q: What is on your mind right now? (unfiltered thoughts, worries, tasks, ideas)
+• 
 ''',
   ),
   JournalTemplate(
@@ -147,13 +385,14 @@ const List<JournalTemplate> kJournalTemplates = [
     description: 'Track momentum, celebrate progress, and identify high-impact next steps.',
     icon: Icons.flag_rounded,
     color: Color(0xFF10B981),
-    defaultContent: '''🚀 1. Which key goal or habit did I advance today?
+    defaultContent: '''🚀 GOAL & HABIT CHECK-IN
+Q: Which key goal or habit did you advance today?
 • 
 
-🧗 2. What challenge or friction did I encounter & how did I handle it?
+Q: What challenge or obstacle did you encounter & how did you handle it?
 • 
 
-⏭️ 3. My #1 highest-leverage action step for tomorrow:
+Q: What is your #1 highest-leverage action step for tomorrow?
 • 
 ''',
   ),
@@ -164,19 +403,20 @@ const List<JournalTemplate> kJournalTemplates = [
     description: 'Check in on your emotional health, energy levels, and personal boundaries.',
     icon: Icons.spa_rounded,
     color: Color(0xFF14B8A6),
-    defaultContent: '''🔋 1. Energy & Mood Check (1 to 10):
+    defaultContent: '''🌿 SELF-CARE & WELLNESS
+Q: How would you rate your energy & mood today (1 to 10)?
 • 
 
-⚡ 2. What energized and revitalized me today?
+Q: What energized and revitalized you today?
 • 
 
-🪫 3. What drained my mental or physical energy?
+Q: What drained your mental or physical energy?
 • 
 
-🌿 4. One kind thing I did (or will do) for myself:
+Q: What is one kind thing you did (or will do) for yourself?
 • 
 
-🧘 5. What do I need to let go of right now?
+Q: What do you need to let go of right now?
 • 
 ''',
   ),
@@ -187,16 +427,17 @@ const List<JournalTemplate> kJournalTemplates = [
     description: 'Capture innovative thoughts, project concepts, and sparks of inspiration.',
     icon: Icons.lightbulb_rounded,
     color: Color(0xFFFBBF24),
-    defaultContent: '''💡 1. The Core Idea / Concept:
+    defaultContent: '''💡 CREATIVE SPARK & IDEAS
+Q: What is the core idea or concept?
 • 
 
-🎯 2. Why this excites or inspires me:
+Q: Why does this excite or inspire you?
 • 
 
-🛠️ 3. How I could test or prototype it simply:
+Q: How could you test or prototype this simply?
 • 
 
-📌 4. Key references, links, or next steps:
+Q: What are the key references or next steps?
 • 
 ''',
   ),
@@ -207,20 +448,18 @@ const List<JournalTemplate> kJournalTemplates = [
     description: 'Review the past 7 days, distill key lessons, and align for next week.',
     icon: Icons.insights_rounded,
     color: Color(0xFF6366F1),
-    defaultContent: '''📈 1. Biggest achievements & wins of this week:
-• 
-• 
-
-📉 2. What didn't go as planned & what did I learn?
+    defaultContent: '''📈 WEEKLY RETROSPECTIVE
+Q: What were your biggest achievements & wins this week?
 • 
 
-🧠 3. Major insights or personal breakthroughs:
+Q: What didn't go as planned & what did you learn?
 • 
 
-🎯 4. Top 3 priorities for next week:
-1. 
-2. 
-3. 
+Q: What were your major insights or personal breakthroughs?
+• 
+
+Q: What is your #1 priority focus for next week?
+• 
 ''',
   ),
   JournalTemplate(
@@ -413,15 +652,19 @@ class _JournalViewState extends State<JournalView> {
                         itemCount: filteredTemplates.length,
                         itemBuilder: (context, index) {
                           final tmpl = filteredTemplates[index];
+                          final isDailyFull = tmpl.id == 'daily_full';
                           return Container(
                             margin: const EdgeInsets.only(bottom: 10),
                             decoration: BoxDecoration(
-                              color: context.themeTextPrimary
-                                  .withValues(alpha: 0.025),
+                              color: isDailyFull
+                                  ? const Color(0xFFF08A82).withValues(alpha: 0.05)
+                                  : context.themeTextPrimary.withValues(alpha: 0.025),
                               borderRadius: BorderRadius.circular(14),
                               border: Border.all(
-                                color: context.themeTextPrimary
-                                    .withValues(alpha: 0.06),
+                                color: isDailyFull
+                                    ? const Color(0xFFF08A82).withValues(alpha: 0.35)
+                                    : context.themeTextPrimary.withValues(alpha: 0.06),
+                                width: isDailyFull ? 1.5 : 1.0,
                               ),
                             ),
                             child: Material(
@@ -456,16 +699,19 @@ class _JournalViewState extends State<JournalView> {
                                           children: [
                                             Row(
                                               children: [
-                                                Text(
-                                                  tmpl.title,
-                                                  style: TextStyle(
-                                                    fontSize: 14,
-                                                    fontWeight: FontWeight.bold,
-                                                    color: context
-                                                        .themeTextPrimary,
+                                                Flexible(
+                                                  child: Text(
+                                                    tmpl.title,
+                                                    style: TextStyle(
+                                                      fontSize: 14,
+                                                      fontWeight: FontWeight.bold,
+                                                      color: context
+                                                          .themeTextPrimary,
+                                                    ),
+                                                    overflow: TextOverflow.ellipsis,
                                                   ),
                                                 ),
-                                                const SizedBox(width: 8),
+                                                const SizedBox(width: 6),
                                                 Container(
                                                   padding: const EdgeInsets
                                                       .symmetric(
@@ -488,6 +734,33 @@ class _JournalViewState extends State<JournalView> {
                                                     ),
                                                   ),
                                                 ),
+                                                if (isDailyFull) ...[
+                                                  const SizedBox(width: 6),
+                                                  Container(
+                                                    padding: const EdgeInsets.symmetric(
+                                                        horizontal: 6, vertical: 2),
+                                                    decoration: BoxDecoration(
+                                                      color: const Color(0xFFF08A82),
+                                                      borderRadius: BorderRadius.circular(6),
+                                                    ),
+                                                    child: const Row(
+                                                      mainAxisSize: MainAxisSize.min,
+                                                      children: [
+                                                        Icon(Icons.star_rounded,
+                                                            size: 10, color: Colors.white),
+                                                        SizedBox(width: 2),
+                                                        Text(
+                                                          'All-in-One Daily',
+                                                          style: TextStyle(
+                                                            color: Colors.white,
+                                                            fontSize: 9,
+                                                            fontWeight: FontWeight.w800,
+                                                          ),
+                                                        ),
+                                                      ],
+                                                    ),
+                                                  ),
+                                                ],
                                               ],
                                             ),
                                             const SizedBox(height: 4),
@@ -611,6 +884,7 @@ class _JournalViewState extends State<JournalView> {
     return widget.entries.where((e) {
       if (_selectedFilter == 'Daily') {
         return e.templateType == 'Daily' ||
+            e.title.toLowerCase().contains('daily') ||
             e.title.toLowerCase().contains('morning') ||
             e.title.toLowerCase().contains('evening');
       }
@@ -694,8 +968,8 @@ class _JournalViewState extends State<JournalView> {
                   onTap: _showTemplatePicker,
                   borderRadius: BorderRadius.circular(12),
                   child: Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 14, vertical: 8),
                     decoration: BoxDecoration(
                       color: const Color(0xFFF08A82),
                       borderRadius: BorderRadius.circular(12),
@@ -871,6 +1145,9 @@ class _JournalViewState extends State<JournalView> {
             const SizedBox(height: 12),
 
             // ─── Filter Chips (Fixed) ───
+            const SizedBox(height: 14),
+
+            // ─── Filter Category Chips ───
             SingleChildScrollView(
               scrollDirection: Axis.horizontal,
               physics: const BouncingScrollPhysics(),
@@ -879,70 +1156,76 @@ class _JournalViewState extends State<JournalView> {
                   final isSelected = _selectedFilter == cat;
                   final count = cat == 'All'
                       ? widget.entries.length
-                      : widget.entries
-                          .where((e) => e.templateType == cat)
-                          .length;
-                  return Padding(
-                    padding: const EdgeInsets.only(right: 8),
-                    child: InkWell(
-                      onTap: () => setState(() => _selectedFilter = cat),
-                      borderRadius: BorderRadius.circular(10),
-                      child: AnimatedContainer(
-                        duration: const Duration(milliseconds: 140),
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 12, vertical: 6),
-                        decoration: BoxDecoration(
+                      : cat == 'Daily'
+                          ? widget.entries
+                              .where((e) =>
+                                  e.templateType == 'Daily' ||
+                                  e.title.toLowerCase().contains('daily') ||
+                                  e.title.toLowerCase().contains('morning') ||
+                                  e.title.toLowerCase().contains('evening'))
+                              .length
+                          : widget.entries
+                              .where((e) => e.templateType == cat)
+                              .length;
+
+                  return GestureDetector(
+                    onTap: () => setState(() => _selectedFilter = cat),
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 140),
+                      margin: const EdgeInsets.only(right: 8),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 14, vertical: 7),
+                      decoration: BoxDecoration(
+                        color: isSelected
+                            ? const Color(0xFFF08A82)
+                            : context.themeCardBackground,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
                           color: isSelected
                               ? const Color(0xFFF08A82)
-                              : context.themeCardBackground,
-                          borderRadius: BorderRadius.circular(10),
-                          border: Border.all(
-                            color: isSelected
-                                ? const Color(0xFFF08A82)
-                                : context.themeTextPrimary
-                                    .withValues(alpha: 0.08),
-                          ),
+                              : context.themeTextPrimary
+                                  .withValues(alpha: 0.06),
                         ),
-                        child: Row(
-                          children: [
-                            Text(
-                              cat,
-                              style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: isSelected
-                                    ? FontWeight.bold
-                                    : FontWeight.w600,
+                      ),
+                      child: Row(
+                        children: [
+                          Text(
+                            cat,
+                            style: TextStyle(
+                              fontSize: 12.5,
+                              fontWeight: isSelected
+                                  ? FontWeight.bold
+                                  : FontWeight.w600,
+                              color: isSelected
+                                  ? Colors.white
+                                  : context.themeTextPrimary,
+                            ),
+                          ),
+                          if (count > 0) ...[
+                            const SizedBox(width: 5),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 5, vertical: 1),
+                              decoration: BoxDecoration(
                                 color: isSelected
-                                    ? Colors.white
-                                    : context.themeTextPrimary,
+                                    ? Colors.white.withValues(alpha: 0.25)
+                                    : context.themeTextPrimary
+                                        .withValues(alpha: 0.06),
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: Text(
+                                '$count',
+                                style: TextStyle(
+                                  fontSize: 9.5,
+                                  fontWeight: FontWeight.bold,
+                                  color: isSelected
+                                      ? Colors.white
+                                      : context.themeTextSecondary,
+                                ),
                               ),
                             ),
-                            if (count > 0) ...[
-                              const SizedBox(width: 5),
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 5, vertical: 1),
-                                decoration: BoxDecoration(
-                                  color: isSelected
-                                      ? Colors.white.withValues(alpha: 0.25)
-                                      : context.themeTextPrimary
-                                          .withValues(alpha: 0.06),
-                                  borderRadius: BorderRadius.circular(6),
-                                ),
-                                child: Text(
-                                  '$count',
-                                  style: TextStyle(
-                                    fontSize: 9.5,
-                                    fontWeight: FontWeight.bold,
-                                    color: isSelected
-                                        ? Colors.white
-                                        : context.themeTextSecondary,
-                                  ),
-                                ),
-                              ),
-                            ],
                           ],
-                        ),
+                        ],
                       ),
                     ),
                   );
@@ -987,7 +1270,7 @@ class _JournalViewState extends State<JournalView> {
                             ),
                             const SizedBox(height: 4),
                             Text(
-                              'Tap "New Entry" above to choose a template and start writing.',
+                              'Choose from guided templates or start freeform writing.',
                               style: TextStyle(
                                 fontSize: 12,
                                 color: context.themeTextSecondary,
@@ -1177,7 +1460,7 @@ class JournalEditor extends StatefulWidget {
 
 class _JournalEditorState extends State<JournalEditor> {
   late TextEditingController _titleCtrl;
-  late TextEditingController _contentCtrl;
+  late JournalTextEditingController _contentCtrl;
   String _mood = '😊';
   String _templateType = 'Daily';
 
@@ -1192,22 +1475,58 @@ class _JournalEditorState extends State<JournalEditor> {
     {'emoji': '😡', 'label': 'Frustrated'},
   ];
 
+  static String _formatDate(DateTime date) {
+    const months = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec'
+    ];
+    return '${date.day} ${months[date.month - 1]} ${date.year}';
+  }
+
   @override
   void initState() {
     super.initState();
+    final now = DateTime.now();
     if (widget.entry != null) {
       _titleCtrl = TextEditingController(text: widget.entry!.title);
-      _contentCtrl = TextEditingController(text: widget.entry!.content);
+      _contentCtrl = JournalTextEditingController(
+        text: widget.entry!.content,
+        contextGetter: () => context,
+      );
       _mood = widget.entry!.mood;
       _templateType = widget.entry!.templateType;
     } else if (widget.initialTemplate != null) {
       final tmpl = widget.initialTemplate!;
-      _titleCtrl = TextEditingController(text: tmpl.title);
-      _contentCtrl = TextEditingController(text: tmpl.defaultContent);
+      _titleCtrl = TextEditingController(
+        text: tmpl.id == 'daily_full'
+            ? 'Daily Journal - ${_formatDate(now)}'
+            : tmpl.title,
+      );
+      _contentCtrl = JournalTextEditingController(
+        text: tmpl.defaultContent,
+        contextGetter: () => context,
+      );
       _templateType = tmpl.category;
     } else {
-      _titleCtrl = TextEditingController(text: '');
-      _contentCtrl = TextEditingController(text: '');
+      final defaultTmpl = kJournalTemplates.first;
+      _titleCtrl = TextEditingController(
+        text: 'Daily Journal - ${_formatDate(now)}',
+      );
+      _contentCtrl = JournalTextEditingController(
+        text: defaultTmpl.defaultContent,
+        contextGetter: () => context,
+      );
+      _templateType = defaultTmpl.category;
     }
   }
 
@@ -1220,7 +1539,10 @@ class _JournalEditorState extends State<JournalEditor> {
 
   void _applyTemplate(JournalTemplate template) {
     setState(() {
-      _titleCtrl.text = template.title;
+      final now = DateTime.now();
+      _titleCtrl.text = template.id == 'daily_full'
+          ? 'Daily Journal - ${_formatDate(now)}'
+          : template.title;
       _contentCtrl.text = template.defaultContent;
       _templateType = template.category;
     });
@@ -1576,10 +1898,11 @@ class _JournalEditorState extends State<JournalEditor> {
                     ),
                     const SizedBox(height: 6),
 
-                    // ─── Content Input ───
+                    // ─── Content Input with Auto-List Continuation ───
                     TextField(
                       controller: _contentCtrl,
                       maxLines: null,
+                      inputFormatters: [JournalAutoListTextInputFormatter()],
                       onChanged: (_) => setState(() {}),
                       style: TextStyle(
                         color: context.themeTextPrimary,
@@ -1588,7 +1911,7 @@ class _JournalEditorState extends State<JournalEditor> {
                       ),
                       decoration: InputDecoration(
                         hintText:
-                            'Write your thoughts or fill in the prompts…',
+                            'Write your thoughts, daily reflections or notes…\n(Press Enter on a bullet point to automatically create the next point)',
                         hintStyle: TextStyle(
                           color: context.themeTextSecondary
                               .withValues(alpha: 0.4),

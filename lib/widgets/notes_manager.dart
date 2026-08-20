@@ -57,13 +57,17 @@ class Note {
       };
 
   factory Note.fromJson(Map<String, dynamic> json) => Note(
-        id: json['id'],
+        id: json['id'] ?? '',
         title: json['title'] ?? '',
         content: json['content'] ?? '',
         date: json['date'] ?? '',
         fontSize: (json['fontSize'] as num?)?.toDouble() ?? 15.0,
-        fontWeight: FontWeight.values[(json['fontWeight'] as int?) ?? 3],
-        textAlign: TextAlign.values[(json['textAlign'] as int?) ?? 0],
+        fontWeight: FontWeight.values[
+            ((json['fontWeight'] as int?) ?? 3)
+                .clamp(0, FontWeight.values.length - 1)],
+        textAlign: TextAlign.values[
+            ((json['textAlign'] as int?) ?? 0)
+                .clamp(0, TextAlign.values.length - 1)],
         color: json['color'] != null ? Color(json['color']) : null,
         highlightColor: Color(
             json['highlightColor'] ?? Colors.transparent.toARGB32()),
@@ -256,8 +260,9 @@ class NoteBlock {
       };
 
   factory NoteBlock.fromJson(Map<String, dynamic> json) => NoteBlock(
-        id: json['id'],
-        type: NoteBlockType.values[(json['type'] as int?) ?? 0],
+        id: json['id'] ?? '',
+        type: NoteBlockType.values[((json['type'] as int?) ?? 0)
+            .clamp(0, NoteBlockType.values.length - 1)],
         text: json['text'] ?? '',
         spans: json['spans'] != null
             ? (json['spans'] as List)
@@ -1434,14 +1439,10 @@ class SpanStyleRichTextEditingController extends TextEditingController {
         runEnd++;
       }
 
-      final isBold =
-          currentStyle.bold || (baseStyle.fontWeight == FontWeight.bold);
-      final isItalic =
-          currentStyle.italic || (baseStyle.fontStyle == FontStyle.italic);
-      final isUnderline = currentStyle.underline ||
-          (baseStyle.decoration?.contains(TextDecoration.underline) ?? false);
-      final isStrike = currentStyle.strikethrough ||
-          (baseStyle.decoration?.contains(TextDecoration.lineThrough) ?? false);
+      final isBold = currentStyle.bold;
+      final isItalic = currentStyle.italic;
+      final isUnderline = currentStyle.underline;
+      final isStrike = currentStyle.strikethrough;
       final effectiveColor = currentStyle.color ?? baseStyle.color;
       final effectiveFontSize = currentStyle.fontSize ?? baseStyle.fontSize;
 
@@ -1559,9 +1560,6 @@ class _NoteEditorState extends State<NoteEditor> {
     final ctrl = _getActiveSpanController();
     if (ctrl != null) {
       ctrl.toggleBold();
-    } else {
-      _fontWeight =
-          _fontWeight == FontWeight.bold ? FontWeight.normal : FontWeight.bold;
     }
     setState(() {});
   }
@@ -1570,8 +1568,6 @@ class _NoteEditorState extends State<NoteEditor> {
     final ctrl = _getActiveSpanController();
     if (ctrl != null) {
       ctrl.toggleItalic();
-    } else {
-      _isItalic = !_isItalic;
     }
     setState(() {});
   }
@@ -1580,8 +1576,6 @@ class _NoteEditorState extends State<NoteEditor> {
     final ctrl = _getActiveSpanController();
     if (ctrl != null) {
       ctrl.toggleUnderline();
-    } else {
-      _isUnderlined = !_isUnderlined;
     }
     setState(() {});
   }
@@ -1590,8 +1584,6 @@ class _NoteEditorState extends State<NoteEditor> {
     final ctrl = _getActiveSpanController();
     if (ctrl != null) {
       ctrl.toggleStrikethrough();
-    } else {
-      _isStrikethrough = !_isStrikethrough;
     }
     setState(() {});
   }
@@ -1613,25 +1605,17 @@ class _NoteEditorState extends State<NoteEditor> {
   }
 
   void _decreaseFontSize() {
-    final ctrl = _getActiveSpanController();
-    if (ctrl != null) {
-      final currentSize = ctrl.getActiveFontSize(15.0);
-      if (currentSize > 8) {
-        ctrl.applyFontSize(currentSize - 1);
-      }
+    final currentSize = _getActiveFontSize();
+    if (currentSize > 8) {
+      _applyFontSize(currentSize - 1);
     }
-    setState(() {});
   }
 
   void _increaseFontSize() {
-    final ctrl = _getActiveSpanController();
-    if (ctrl != null) {
-      final currentSize = ctrl.getActiveFontSize(15.0);
-      if (currentSize < 72) {
-        ctrl.applyFontSize(currentSize + 1);
-      }
+    final currentSize = _getActiveFontSize();
+    if (currentSize < 72) {
+      _applyFontSize(currentSize + 1);
     }
-    setState(() {});
   }
 
   Color? _getActiveTextColor() {
@@ -1653,25 +1637,25 @@ class _NoteEditorState extends State<NoteEditor> {
   bool _isBoldActive() {
     final ctrl = _getActiveSpanController();
     if (ctrl != null) return ctrl.isBoldActive();
-    return _fontWeight == FontWeight.bold;
+    return false;
   }
 
   bool _isItalicActive() {
     final ctrl = _getActiveSpanController();
     if (ctrl != null) return ctrl.isItalicActive();
-    return _isItalic;
+    return false;
   }
 
   bool _isUnderlineActive() {
     final ctrl = _getActiveSpanController();
     if (ctrl != null) return ctrl.isUnderlineActive();
-    return _isUnderlined;
+    return false;
   }
 
   bool _isStrikethroughActive() {
     final ctrl = _getActiveSpanController();
     if (ctrl != null) return ctrl.isStrikethroughActive();
-    return _isStrikethrough;
+    return false;
   }
 
   FocusNode _getFocusNode(String id) {
@@ -1739,7 +1723,10 @@ class _NoteEditorState extends State<NoteEditor> {
               tableData: b.tableData.map((r) => List<String>.from(r)).toList(),
               listItems: b.listItems
                   .map((i) => TaskItem(
-                      id: i.id, text: i.text, checked: i.checked))
+                      id: i.id,
+                      text: i.text,
+                      checked: i.checked,
+                      spans: i.spans))
                   .toList(),
             )));
       } else if (n.content.isNotEmpty) {
@@ -1792,6 +1779,16 @@ class _NoteEditorState extends State<NoteEditor> {
             item.text = ctrl.text;
             if (ctrl is SpanStyleRichTextEditingController) {
               item.spans = compressCharStyles(ctrl.charStyles);
+            }
+          }
+        }
+      } else if (b.type == NoteBlockType.table) {
+        for (int ri = 0; ri < b.tableData.length; ri++) {
+          for (int ci = 0; ci < b.tableData[ri].length; ci++) {
+            final cellId = '${b.id}_${ri}_$ci';
+            final ctrl = _textControllers[cellId];
+            if (ctrl != null) {
+              b.tableData[ri][ci] = ctrl.text;
             }
           }
         }
@@ -1896,6 +1893,8 @@ class _NoteEditorState extends State<NoteEditor> {
         final chunkFontSize = currentStyle.fontSize ?? 12.0;
         final isUnderline = currentStyle.underline;
         final isStrike = isStrikethrough || currentStyle.strikethrough;
+        final isBold = currentStyle.bold;
+        final isItalic = currentStyle.italic;
 
         children.add(pw.TextSpan(
           text: chunk,
@@ -1903,8 +1902,8 @@ class _NoteEditorState extends State<NoteEditor> {
             fontSize: chunkFontSize,
             color: chunkColor,
             fontWeight:
-                currentStyle.bold ? pw.FontWeight.bold : pw.FontWeight.normal,
-            fontStyle: currentStyle.italic
+                isBold ? pw.FontWeight.bold : pw.FontWeight.normal,
+            fontStyle: isItalic
                 ? pw.FontStyle.italic
                 : pw.FontStyle.normal,
             decoration: isUnderline && isStrike
@@ -2343,12 +2342,9 @@ class _NoteEditorState extends State<NoteEditor> {
               fontSize: 15.0,
               color: context.themeTextPrimary,
               fontFamily: _fontFamily,
-              fontWeight: _fontWeight,
-              fontStyle: _isItalic ? FontStyle.italic : FontStyle.normal,
-              decoration: TextDecoration.combine([
-                if (_isUnderlined) TextDecoration.underline,
-                if (_isStrikethrough) TextDecoration.lineThrough,
-              ]),
+              fontWeight: FontWeight.normal,
+              fontStyle: FontStyle.normal,
+              decoration: TextDecoration.none,
               height: 1.7,
             ),
             decoration: InputDecoration(
@@ -2534,7 +2530,10 @@ class _NoteEditorState extends State<NoteEditor> {
                             color: item.checked
                                 ? context.themeTextSecondary
                                 : context.themeTextPrimary,
-                            fontSize: 14.5,
+                            fontSize: 15.0,
+                            fontFamily: _fontFamily,
+                            fontWeight: FontWeight.normal,
+                            fontStyle: FontStyle.normal,
                             decoration: item.checked
                                 ? TextDecoration.lineThrough
                                 : TextDecoration.none,
@@ -2666,7 +2665,11 @@ class _NoteEditorState extends State<NoteEditor> {
                           textInputAction: TextInputAction.newline,
                           style: TextStyle(
                             color: context.themeTextPrimary,
-                            fontSize: 14.5,
+                            fontSize: 15.0,
+                            fontFamily: _fontFamily,
+                            fontWeight: FontWeight.normal,
+                            fontStyle: FontStyle.normal,
+                            decoration: TextDecoration.none,
                             height: 1.4,
                           ),
                           decoration: InputDecoration(

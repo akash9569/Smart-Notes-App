@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import '../app_theme.dart';
 import '../services/notification_service.dart';
@@ -12,10 +13,35 @@ class Habit {
   final int total; // Target goal (e.g. 21, 30, 60 days)
   final Color color;
   final String frequency; // 'daily', 'weekly', 'monthly'
-  final int durationMinutes; // e.g. 15, 30, 45, 60
+  final int durationMinutes; // 0 for untimed / check-in habits (e.g. Wake up at 7am), or > 0 for timed habits
   final String timeOfDay; // e.g. "08:00 AM"
-  final List<String> reminders; // Automatically scheduled ['30_min', '10_min', 'exact']
+  final List<String> reminders; // Automatically scheduled ['5_min_before', 'exact', '5_min_before_complete', 'complete']
   final List<String> targetDays; // For weekly habits: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+
+  bool get hasDuration => durationMinutes > 0;
+
+  int get startMinutes {
+    try {
+      final str = timeOfDay.trim().toUpperCase();
+      final isPM = str.contains('PM');
+      final isAM = str.contains('AM');
+      final cleanStr = str.replaceAll(RegExp(r'[^\d:]'), '');
+      final parts = cleanStr.split(':');
+      if (parts.length >= 2) {
+        int h = int.tryParse(parts[0]) ?? 0;
+        final m = int.tryParse(parts[1]) ?? 0;
+        if (isPM && h < 12) h += 12;
+        if (isAM && h == 12) h = 0;
+        return h * 60 + m;
+      } else if (parts.length == 1) {
+        int h = int.tryParse(parts[0]) ?? 0;
+        if (isPM && h < 12) h += 12;
+        if (isAM && h == 12) h = 0;
+        return h * 60;
+      }
+    } catch (_) {}
+    return 0;
+  }
 
   Habit({
     required this.id,
@@ -24,7 +50,7 @@ class Habit {
     required this.total,
     required this.color,
     this.frequency = 'daily',
-    this.durationMinutes = 30,
+    this.durationMinutes = 0,
     this.timeOfDay = '08:00 AM',
     this.reminders = const [
       '5_min_before',
@@ -42,7 +68,7 @@ class Habit {
       total: json['total'] ?? 21,
       color: Color(json['colorValue'] ?? 0xFFF08A82),
       frequency: json['frequency'] ?? 'daily',
-      durationMinutes: json['durationMinutes'] ?? 30,
+      durationMinutes: json['durationMinutes'] ?? 0,
       timeOfDay: json['timeOfDay'] ?? '08:00 AM',
       reminders: json['reminders'] != null
           ? List<String>.from(json['reminders'])
@@ -179,7 +205,7 @@ class _HabitTrackerViewState extends State<HabitTrackerView> {
       bool bDone = b.completedDates.contains(todayStr);
       if (aDone && !bDone) return 1;
       if (!aDone && bDone) return -1;
-      return 0;
+      return a.startMinutes.compareTo(b.startMinutes);
     });
 
     final habitsDoneToday =
@@ -696,33 +722,69 @@ class _HabitTrackerViewState extends State<HabitTrackerView> {
                             ),
                           ),
                         ),
-                        // Duration badge
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 6, vertical: 2),
-                          decoration: BoxDecoration(
-                            color: context.themeTextPrimary
-                                .withValues(alpha: 0.04),
+                        // Duration / Check-in badge
+                        if (habit.hasDuration)
+                          InkWell(
+                            onTap: () =>
+                                _showHabitTimerModal(context, habit),
                             borderRadius: BorderRadius.circular(6),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(Icons.timer_outlined,
-                                  size: 11,
-                                  color: context.themeTextSecondary),
-                              const SizedBox(width: 3),
-                              Text(
-                                '${habit.durationMinutes}m',
-                                style: TextStyle(
-                                  fontSize: 10.5,
-                                  fontWeight: FontWeight.w600,
-                                  color: context.themeTextSecondary,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 6, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFF08A82)
+                                    .withValues(alpha: 0.1),
+                                borderRadius: BorderRadius.circular(6),
+                                border: Border.all(
+                                  color: const Color(0xFFF08A82)
+                                      .withValues(alpha: 0.25),
                                 ),
                               ),
-                            ],
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Icon(Icons.timer_outlined,
+                                      size: 11, color: Color(0xFFF08A82)),
+                                  const SizedBox(width: 3),
+                                  Text(
+                                    _formatDuration(habit.durationMinutes),
+                                    style: const TextStyle(
+                                      fontSize: 10.5,
+                                      fontWeight: FontWeight.w700,
+                                      color: Color(0xFFF08A82),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          )
+                        else
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: context.themeTextPrimary
+                                  .withValues(alpha: 0.04),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.check_circle_outline_rounded,
+                                    size: 11,
+                                    color: context.themeTextSecondary),
+                                const SizedBox(width: 3),
+                                Text(
+                                  'Check-in',
+                                  style: TextStyle(
+                                    fontSize: 10.5,
+                                    fontWeight: FontWeight.w600,
+                                    color: context.themeTextSecondary,
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
-                        ),
                         // Time badge
                         Container(
                           padding: const EdgeInsets.symmetric(
@@ -811,6 +873,16 @@ class _HabitTrackerViewState extends State<HabitTrackerView> {
                   ],
                 ),
               ),
+              if (habit.hasDuration && !isCompletedToday)
+                IconButton(
+                  icon: const Icon(Icons.play_circle_fill_rounded,
+                      size: 24, color: Color(0xFFF08A82)),
+                  tooltip: 'Start Live Timer',
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                  onPressed: () => _showHabitTimerModal(context, habit),
+                ),
+              const SizedBox(width: 4),
               PopupMenuButton<String>(
                 icon: Icon(Icons.more_vert_rounded,
                     size: 18, color: context.themeTextSecondary),
@@ -822,13 +894,30 @@ class _HabitTrackerViewState extends State<HabitTrackerView> {
                   ),
                 ),
                 onSelected: (value) {
-                  if (value == 'edit') {
+                  if (value == 'timer' && habit.hasDuration) {
+                    _showHabitTimerModal(context, habit);
+                  } else if (value == 'edit') {
                     _showHabitDialog(context, existingHabit: habit);
                   } else if (value == 'delete') {
                     _deleteHabit(habit);
                   }
                 },
                 itemBuilder: (context) => [
+                  if (habit.hasDuration)
+                    PopupMenuItem<String>(
+                      value: 'timer',
+                      child: Row(
+                        children: [
+                          const Icon(Icons.timer_outlined,
+                              size: 16, color: Color(0xFFF08A82)),
+                          const SizedBox(width: 8),
+                          Text('Start Timer',
+                              style: TextStyle(
+                                  color: context.themeTextPrimary,
+                                  fontSize: 13)),
+                        ],
+                      ),
+                    ),
                   PopupMenuItem<String>(
                     value: 'edit',
                     child: Text('Edit',
@@ -969,6 +1058,15 @@ class _HabitTrackerViewState extends State<HabitTrackerView> {
     );
   }
 
+  static String _formatDuration(int minutes) {
+    if (minutes <= 0) return 'No Duration';
+    if (minutes < 60) return '${minutes}m';
+    final h = minutes ~/ 60;
+    final m = minutes % 60;
+    if (m == 0) return '${h}h';
+    return '${h}h ${m}m';
+  }
+
   // ───────────────────────────────────────────────────────────────────────────
   // Create / Edit Habit Dialog
   // ───────────────────────────────────────────────────────────────────────────
@@ -979,14 +1077,15 @@ class _HabitTrackerViewState extends State<HabitTrackerView> {
     int total = isEditing ? existingHabit.total : 21;
     Color selectedColor = isEditing ? existingHabit.color : _themeColors[0];
     String frequency = isEditing ? existingHabit.frequency : 'daily';
-    int durationMinutes = isEditing ? existingHabit.durationMinutes : 30;
+    int durationMinutes = isEditing ? existingHabit.durationMinutes : 0;
+    bool hasDuration = durationMinutes > 0;
     String timeOfDayStr = isEditing ? existingHabit.timeOfDay : '08:00 AM';
     List<String> targetDays = isEditing
         ? List<String>.from(existingHabit.targetDays)
         : ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
     final allDaysOfWeek = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-    final durationOptions = [10, 15, 20, 30, 45, 60, 90];
+    final durationOptions = [5, 10, 15, 20, 25, 30, 45, 60, 90, 120];
     final goalPresetOptions = [21, 30, 60, 90, 100, 365];
     final timePresets = [
       '06:00 AM',
@@ -1032,7 +1131,7 @@ class _HabitTrackerViewState extends State<HabitTrackerView> {
                     style: TextStyle(
                         color: context.themeTextPrimary, fontSize: 14),
                     decoration: InputDecoration(
-                      hintText: 'e.g. Read 20 Pages, Morning Jog, Meditation',
+                      hintText: 'e.g. Wake up at 7am, Morning Jog, Read Books',
                       hintStyle: TextStyle(
                         color: context.themeTextSecondary
                             .withValues(alpha: 0.5),
@@ -1138,15 +1237,19 @@ class _HabitTrackerViewState extends State<HabitTrackerView> {
                   ],
                   const SizedBox(height: 18),
 
-                  // ── 2. HOW LONG (DURATION) ──
+                  // ── 2. HOW LONG (DURATION & TIMER) ──
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       _dialogSectionTitle('HOW LONG (DURATION)'),
                       Text(
-                        '$durationMinutes mins',
-                        style: const TextStyle(
-                          color: Color(0xFFF08A82),
+                        hasDuration
+                            ? _formatDuration(durationMinutes)
+                            : 'No Duration (Check-in)',
+                        style: TextStyle(
+                          color: hasDuration
+                              ? const Color(0xFFF08A82)
+                              : context.themeTextSecondary,
                           fontWeight: FontWeight.bold,
                           fontSize: 12,
                         ),
@@ -1154,46 +1257,219 @@ class _HabitTrackerViewState extends State<HabitTrackerView> {
                     ],
                   ),
                   const SizedBox(height: 8),
-                  SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: Row(
-                      children: durationOptions.map((m) {
-                        final isSel = durationMinutes == m;
-                        return GestureDetector(
-                          onTap: () =>
-                              setDialogState(() => durationMinutes = m),
+                  // Toggle between No Duration (Check-in) and Timed Habit
+                  Row(
+                    children: [
+                      Expanded(
+                        child: GestureDetector(
+                          onTap: () => setDialogState(() {
+                            hasDuration = false;
+                            durationMinutes = 0;
+                          }),
                           child: Container(
-                            margin: const EdgeInsets.only(right: 6),
                             padding: const EdgeInsets.symmetric(
-                                horizontal: 10, vertical: 6),
+                                vertical: 8, horizontal: 8),
                             decoration: BoxDecoration(
-                              color: isSel
+                              color: !hasDuration
                                   ? const Color(0xFFF08A82)
                                   : context.themeTextPrimary
                                       .withValues(alpha: 0.04),
-                              borderRadius: BorderRadius.circular(8),
+                              borderRadius: BorderRadius.circular(10),
                               border: Border.all(
-                                color: isSel
+                                color: !hasDuration
                                     ? const Color(0xFFF08A82)
                                     : context.themeTextPrimary
                                         .withValues(alpha: 0.08),
                               ),
                             ),
-                            child: Text(
-                              '${m}m',
-                              style: TextStyle(
-                                fontSize: 11.5,
-                                fontWeight: FontWeight.bold,
-                                color: isSel
-                                    ? Colors.white
-                                    : context.themeTextPrimary,
+                            alignment: Alignment.center,
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(
+                                  Icons.check_circle_outline_rounded,
+                                  size: 14,
+                                  color: !hasDuration
+                                      ? Colors.white
+                                      : context.themeTextSecondary,
+                                ),
+                                const SizedBox(width: 5),
+                                Text(
+                                  'No Duration',
+                                  style: TextStyle(
+                                    fontSize: 11.5,
+                                    fontWeight: FontWeight.bold,
+                                    color: !hasDuration
+                                        ? Colors.white
+                                        : context.themeTextPrimary,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: GestureDetector(
+                          onTap: () => setDialogState(() {
+                            hasDuration = true;
+                            if (durationMinutes <= 0) durationMinutes = 30;
+                          }),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                                vertical: 8, horizontal: 8),
+                            decoration: BoxDecoration(
+                              color: hasDuration
+                                  ? const Color(0xFFF08A82)
+                                  : context.themeTextPrimary
+                                      .withValues(alpha: 0.04),
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(
+                                color: hasDuration
+                                    ? const Color(0xFFF08A82)
+                                    : context.themeTextPrimary
+                                        .withValues(alpha: 0.08),
+                              ),
+                            ),
+                            alignment: Alignment.center,
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(
+                                  Icons.timer_outlined,
+                                  size: 14,
+                                  color: hasDuration
+                                      ? Colors.white
+                                      : context.themeTextSecondary,
+                                ),
+                                const SizedBox(width: 5),
+                                Text(
+                                  'Set Duration',
+                                  style: TextStyle(
+                                    fontSize: 11.5,
+                                    fontWeight: FontWeight.bold,
+                                    color: hasDuration
+                                        ? Colors.white
+                                        : context.themeTextPrimary,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  if (hasDuration) ...[
+                    const SizedBox(height: 10),
+                    SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: Row(
+                        children: [
+                          ...durationOptions.map((m) {
+                            final isSel = durationMinutes == m;
+                            return GestureDetector(
+                              onTap: () => setDialogState(
+                                  () => durationMinutes = m),
+                              child: Container(
+                                margin: const EdgeInsets.only(right: 6),
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 10, vertical: 6),
+                                decoration: BoxDecoration(
+                                  color: isSel
+                                      ? const Color(0xFFF08A82)
+                                      : context.themeTextPrimary
+                                          .withValues(alpha: 0.04),
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(
+                                    color: isSel
+                                        ? const Color(0xFFF08A82)
+                                        : context.themeTextPrimary
+                                            .withValues(alpha: 0.08),
+                                  ),
+                                ),
+                                child: Text(
+                                  '${m}m',
+                                  style: TextStyle(
+                                    fontSize: 11.5,
+                                    fontWeight: FontWeight.bold,
+                                    color: isSel
+                                        ? Colors.white
+                                        : context.themeTextPrimary,
+                                  ),
+                                ),
+                              ),
+                            );
+                          }),
+                          // Custom timer button
+                          GestureDetector(
+                            onTap: () => _showCustomDurationPicker(
+                              context,
+                              durationMinutes,
+                              (customM) {
+                                setDialogState(
+                                    () => durationMinutes = customM);
+                              },
+                            ),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 10, vertical: 6),
+                              decoration: BoxDecoration(
+                                color: !durationOptions
+                                            .contains(durationMinutes) &&
+                                        durationMinutes > 0
+                                    ? const Color(0xFFF08A82)
+                                    : context.themeTextPrimary
+                                        .withValues(alpha: 0.04),
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(
+                                  color: !durationOptions
+                                              .contains(durationMinutes) &&
+                                          durationMinutes > 0
+                                      ? const Color(0xFFF08A82)
+                                      : const Color(0xFFF08A82)
+                                          .withValues(alpha: 0.4),
+                                ),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    Icons.tune_rounded,
+                                    size: 13,
+                                    color: !durationOptions
+                                                .contains(durationMinutes) &&
+                                            durationMinutes > 0
+                                        ? Colors.white
+                                        : const Color(0xFFF08A82),
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    !durationOptions
+                                                .contains(durationMinutes) &&
+                                            durationMinutes > 0
+                                        ? _formatDuration(durationMinutes)
+                                        : 'Custom...',
+                                    style: TextStyle(
+                                      fontSize: 11.5,
+                                      fontWeight: FontWeight.bold,
+                                      color: !durationOptions
+                                                  .contains(
+                                                      durationMinutes) &&
+                                              durationMinutes > 0
+                                          ? Colors.white
+                                          : const Color(0xFFF08A82),
+                                    ),
+                                  ),
+                                ],
                               ),
                             ),
                           ),
-                        );
-                      }).toList(),
+                        ],
+                      ),
                     ),
-                  ),
+                  ],
                   const SizedBox(height: 18),
 
                   // ── 3. TIME / SCHEDULE (INTERACTIVE CLOCK) ──
@@ -1294,9 +1570,9 @@ class _HabitTrackerViewState extends State<HabitTrackerView> {
                               borderRadius: BorderRadius.circular(8),
                               border: Border.all(
                                 color: isSel
-                                  ? const Color(0xFFF08A82)
-                                  : context.themeTextPrimary
-                                      .withValues(alpha: 0.08),
+                                    ? const Color(0xFFF08A82)
+                                    : context.themeTextPrimary
+                                        .withValues(alpha: 0.08),
                               ),
                             ),
                             child: Text(
@@ -1312,6 +1588,41 @@ class _HabitTrackerViewState extends State<HabitTrackerView> {
                           ),
                         );
                       }).toList(),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+
+                  // ── NOTIFICATION PREVIEW ──
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 12, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF3B82F6).withValues(alpha: 0.08),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: const Color(0xFF3B82F6).withValues(alpha: 0.15),
+                      ),
+                    ),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Icon(Icons.notifications_active_rounded,
+                            size: 16, color: Color(0xFF3B82F6)),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            hasDuration
+                                ? '🔔 Notifications: 5 min before start, At $timeOfDayStr, 5 min before finish, & When complete.'
+                                : '🔔 Notifications: 5 min before & At scheduled time ($timeOfDayStr).',
+                            style: const TextStyle(
+                              fontSize: 11.5,
+                              color: Color(0xFF3B82F6),
+                              fontWeight: FontWeight.w500,
+                              height: 1.3,
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                   const SizedBox(height: 18),
@@ -1478,6 +1789,8 @@ class _HabitTrackerViewState extends State<HabitTrackerView> {
                               'complete'
                             ];
 
+                            final finalDuration = hasDuration ? durationMinutes : 0;
+
                             final newHabit = Habit(
                               id: habitId,
                               name: habitName,
@@ -1487,7 +1800,7 @@ class _HabitTrackerViewState extends State<HabitTrackerView> {
                               total: total,
                               color: selectedColor,
                               frequency: frequency,
-                              durationMinutes: durationMinutes,
+                              durationMinutes: finalDuration,
                               timeOfDay: timeOfDayStr,
                               reminders: autoReminders,
                               targetDays: targetDays,
@@ -1510,10 +1823,12 @@ class _HabitTrackerViewState extends State<HabitTrackerView> {
                               baseId: numericId,
                               habitName: habitName,
                               timeOfDayStr: timeOfDayStr,
-                              durationMinutes: durationMinutes,
+                              durationMinutes: finalDuration,
                               selectedReminders: autoReminders,
                             );
 
+                            updatedList.sort(
+                                (a, b) => a.startMinutes.compareTo(b.startMinutes));
                             widget.onHabitsChanged(updatedList);
                             if (ctx.mounted) Navigator.pop(ctx);
                           }
@@ -1538,6 +1853,285 @@ class _HabitTrackerViewState extends State<HabitTrackerView> {
             ),
           ),
         ),
+      ),
+    );
+  }
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // Custom Duration Picker Dialog
+  // ───────────────────────────────────────────────────────────────────────────
+  void _showCustomDurationPicker(
+    BuildContext context,
+    int initialMinutes,
+    Function(int) onSelected,
+  ) {
+    int currentTotal = initialMinutes > 0 ? initialMinutes : 30;
+    int hours = currentTotal ~/ 60;
+    int minutes = currentTotal % 60;
+    if (hours == 0 && minutes == 0) minutes = 15;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setState) => Dialog(
+          backgroundColor: context.themeCardBackground,
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          insetPadding:
+              const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+          child: Container(
+            constraints: const BoxConstraints(maxWidth: 360),
+            padding: const EdgeInsets.all(22),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      'Customize Duration',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: context.themeTextPrimary,
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close_rounded, size: 18),
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(),
+                      onPressed: () => Navigator.pop(ctx),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                // Display
+                Container(
+                  width: double.infinity,
+                  padding:
+                      const EdgeInsets.symmetric(vertical: 16, horizontal: 20),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF08A82).withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(
+                      color: const Color(0xFFF08A82).withValues(alpha: 0.25),
+                    ),
+                  ),
+                  child: Center(
+                    child: Text(
+                      hours > 0
+                          ? (minutes > 0 ? '${hours}h ${minutes}m' : '$hours Hour${hours > 1 ? "s" : ""}')
+                          : '$minutes Minutes',
+                      style: const TextStyle(
+                        fontSize: 24,
+                        fontWeight: FontWeight.w800,
+                        color: Color(0xFFF08A82),
+                        letterSpacing: -0.5,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 18),
+                // Hours and Minutes adjustments
+                Row(
+                  children: [
+                    // Hours
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('HOURS',
+                              style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w700,
+                                  color: context.themeTextSecondary)),
+                          const SizedBox(height: 6),
+                          Row(
+                            children: [
+                              IconButton(
+                                icon: const Icon(Icons.remove_circle_outline,
+                                    size: 22),
+                                onPressed: hours > 0
+                                    ? () => setState(() => hours--)
+                                    : null,
+                              ),
+                              Expanded(
+                                child: Center(
+                                  child: Text(
+                                    '$hours',
+                                    style: TextStyle(
+                                      fontSize: 18,
+                                      fontWeight: FontWeight.bold,
+                                      color: context.themeTextPrimary,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              IconButton(
+                                icon: const Icon(Icons.add_circle_outline,
+                                    size: 22),
+                                onPressed: hours < 12
+                                    ? () => setState(() => hours++)
+                                    : null,
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                    Container(
+                      width: 1,
+                      height: 48,
+                      margin: const EdgeInsets.symmetric(horizontal: 8),
+                      color: context.themeTextPrimary.withValues(alpha: 0.1),
+                    ),
+                    // Minutes
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('MINUTES',
+                              style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w700,
+                                  color: context.themeTextSecondary)),
+                          const SizedBox(height: 6),
+                          Row(
+                            children: [
+                              IconButton(
+                                icon: const Icon(Icons.remove_circle_outline,
+                                    size: 22),
+                                onPressed: (hours > 0 ? minutes > 0 : minutes > 1)
+                                    ? () => setState(() => minutes =
+                                        (minutes - 5)
+                                            .clamp(hours > 0 ? 0 : 1, 59))
+                                    : null,
+                              ),
+                              Expanded(
+                                child: Center(
+                                  child: Text(
+                                    '$minutes',
+                                    style: TextStyle(
+                                      fontSize: 18,
+                                      fontWeight: FontWeight.bold,
+                                      color: context.themeTextPrimary,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              IconButton(
+                                icon: const Icon(Icons.add_circle_outline,
+                                    size: 22),
+                                onPressed: minutes < 59
+                                    ? () => setState(() => minutes =
+                                        (minutes + 5).clamp(1, 59))
+                                    : null,
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 14),
+                // Quick chips
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: [5, 10, 15, 25, 45, 60, 90, 120].map((m) {
+                    final isSel = (hours * 60 + minutes) == m;
+                    return GestureDetector(
+                      onTap: () {
+                        setState(() {
+                          hours = m ~/ 60;
+                          minutes = m % 60;
+                        });
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 10, vertical: 5),
+                        decoration: BoxDecoration(
+                          color: isSel
+                              ? const Color(0xFFF08A82)
+                              : context.themeTextPrimary
+                                  .withValues(alpha: 0.04),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(
+                            color: isSel
+                                ? const Color(0xFFF08A82)
+                                : context.themeTextPrimary
+                                    .withValues(alpha: 0.08),
+                          ),
+                        ),
+                        child: Text(
+                          _formatDuration(m),
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold,
+                            color: isSel
+                                ? Colors.white
+                                : context.themeTextPrimary,
+                          ),
+                        ),
+                      ),
+                    );
+                  }).toList(),
+                ),
+                const SizedBox(height: 20),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: () {
+                      final totalMin = hours * 60 + minutes;
+                      if (totalMin > 0) {
+                        onSelected(totalMin);
+                        Navigator.pop(ctx);
+                      }
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFFF08A82),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10)),
+                    ),
+                    child: const Text('Apply Duration',
+                        style: TextStyle(fontWeight: FontWeight.bold)),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // Live Habit Timer Modal
+  // ───────────────────────────────────────────────────────────────────────────
+  void _showHabitTimerModal(BuildContext context, Habit habit) {
+    showDialog(
+      context: context,
+      builder: (ctx) => _HabitTimerDialog(
+        habit: habit,
+        onCompleted: (h) {
+          final todayStr = _getTodayStr();
+          if (!h.completedDates.contains(todayStr)) {
+            final updatedDates = List<String>.from(h.completedDates)
+              ..add(todayStr);
+            final updatedHabit = h.copyWith(completedDates: updatedDates);
+            final updatedList = List<Habit>.from(widget.habits);
+            final index =
+                updatedList.indexWhere((item) => item.id == h.id);
+            if (index != -1) {
+              updatedList[index] = updatedHabit;
+              widget.onHabitsChanged(updatedList);
+            }
+          }
+        },
       ),
     );
   }
@@ -1594,5 +2188,318 @@ class _HabitTrackerViewState extends State<HabitTrackerView> {
     final updatedList =
         widget.habits.where((h) => h.id != habit.id).toList();
     widget.onHabitsChanged(updatedList);
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Habit Timer Dialog (Live Countdown Timer)
+// ─────────────────────────────────────────────────────────────────────────────
+class _HabitTimerDialog extends StatefulWidget {
+  final Habit habit;
+  final Function(Habit) onCompleted;
+
+  const _HabitTimerDialog({
+    required this.habit,
+    required this.onCompleted,
+  });
+
+  @override
+  State<_HabitTimerDialog> createState() => _HabitTimerDialogState();
+}
+
+class _HabitTimerDialogState extends State<_HabitTimerDialog> {
+  late int _remainingSeconds;
+  late int _totalSeconds;
+  Timer? _timer;
+  bool _isRunning = false;
+  bool _isCompleted = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _totalSeconds = (widget.habit.durationMinutes > 0
+            ? widget.habit.durationMinutes
+            : 15) *
+        60;
+    _remainingSeconds = _totalSeconds;
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  void _startTimer() {
+    _timer?.cancel();
+    setState(() => _isRunning = true);
+    _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (_remainingSeconds > 0) {
+        setState(() => _remainingSeconds--);
+      } else {
+        _timer?.cancel();
+        setState(() {
+          _isRunning = false;
+          _isCompleted = true;
+        });
+      }
+    });
+  }
+
+  void _pauseTimer() {
+    _timer?.cancel();
+    setState(() => _isRunning = false);
+  }
+
+  void _resetTimer() {
+    _timer?.cancel();
+    setState(() {
+      _remainingSeconds = _totalSeconds;
+      _isRunning = false;
+      _isCompleted = false;
+    });
+  }
+
+  void _addMinutes(int minutes) {
+    setState(() {
+      _remainingSeconds =
+          (_remainingSeconds + minutes * 60).clamp(0, 14400);
+      _totalSeconds = (_totalSeconds + minutes * 60).clamp(60, 14400);
+      _isCompleted = false;
+    });
+  }
+
+  String _formatTime(int totalSec) {
+    final h = totalSec ~/ 3600;
+    final m = (totalSec % 3600) ~/ 60;
+    final s = totalSec % 60;
+    if (h > 0) {
+      return '${h.toString().padLeft(2, '0')}:${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}';
+    }
+    return '${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final progress = _totalSeconds > 0
+        ? 1.0 - (_remainingSeconds / _totalSeconds)
+        : 0.0;
+
+    return Dialog(
+      backgroundColor: context.themeCardBackground,
+      shape:
+          RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+      insetPadding:
+          const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+      child: Container(
+        constraints: const BoxConstraints(maxWidth: 380),
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Header
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      width: 12,
+                      height: 12,
+                      decoration: BoxDecoration(
+                        color: widget.habit.color,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Habit Timer',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.bold,
+                        color: context.themeTextSecondary,
+                      ),
+                    ),
+                  ],
+                ),
+                IconButton(
+                  icon: const Icon(Icons.close_rounded, size: 20),
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                  onPressed: () => Navigator.pop(context),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Text(
+              widget.habit.name,
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w800,
+                color: context.themeTextPrimary,
+              ),
+              textAlign: TextAlign.center,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+            const SizedBox(height: 24),
+
+            // Circular Timer Display
+            Stack(
+              alignment: Alignment.center,
+              children: [
+                SizedBox(
+                  width: 190,
+                  height: 190,
+                  child: CircularProgressIndicator(
+                    value: progress.clamp(0.0, 1.0),
+                    strokeWidth: 10,
+                    backgroundColor: context.themeTextPrimary
+                        .withValues(alpha: 0.08),
+                    valueColor: AlwaysStoppedAnimation<Color>(
+                      _isCompleted
+                          ? const Color(0xFF10B981)
+                          : widget.habit.color,
+                    ),
+                  ),
+                ),
+                Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (_isCompleted) ...[
+                      const Icon(Icons.check_circle_rounded,
+                          size: 38, color: Color(0xFF10B981)),
+                      const SizedBox(height: 6),
+                      const Text(
+                        'Completed!',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFF10B981),
+                        ),
+                      ),
+                    ] else ...[
+                      Text(
+                        _formatTime(_remainingSeconds),
+                        style: TextStyle(
+                          fontSize: 32,
+                          fontWeight: FontWeight.w900,
+                          color: context.themeTextPrimary,
+                          letterSpacing: 1.0,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        _isRunning ? 'In Progress' : 'Paused',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: _isRunning
+                              ? const Color(0xFF10B981)
+                              : context.themeTextSecondary,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+
+            // Quick adjustment chips
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                _adjustChip('-5m', () => _addMinutes(-5)),
+                const SizedBox(width: 8),
+                _adjustChip('-1m', () => _addMinutes(-1)),
+                const SizedBox(width: 8),
+                _adjustChip('+1m', () => _addMinutes(1)),
+                const SizedBox(width: 8),
+                _adjustChip('+5m', () => _addMinutes(5)),
+              ],
+            ),
+            const SizedBox(height: 20),
+
+            // Timer controls
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                IconButton.filledTonal(
+                  icon: const Icon(Icons.refresh_rounded),
+                  iconSize: 22,
+                  onPressed: _resetTimer,
+                  tooltip: 'Reset',
+                ),
+                const SizedBox(width: 16),
+                IconButton.filled(
+                  icon: Icon(_isRunning
+                      ? Icons.pause_rounded
+                      : Icons.play_arrow_rounded),
+                  iconSize: 32,
+                  style: IconButton.styleFrom(
+                    backgroundColor: widget.habit.color,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.all(16),
+                  ),
+                  onPressed: _isRunning ? _pauseTimer : _startTimer,
+                  tooltip: _isRunning ? 'Pause' : 'Start',
+                ),
+              ],
+            ),
+            const SizedBox(height: 18),
+
+            // Mark Done button
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: () {
+                  widget.onCompleted(widget.habit);
+                  Navigator.pop(context);
+                },
+                icon: const Icon(Icons.check_circle_rounded, size: 18),
+                label: const Text('Mark Done Today',
+                    style: TextStyle(fontWeight: FontWeight.bold)),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF10B981),
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  elevation: 0,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _adjustChip(String label, VoidCallback onTap) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        padding:
+            const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+        decoration: BoxDecoration(
+          color: context.themeTextPrimary.withValues(alpha: 0.05),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: context.themeTextPrimary.withValues(alpha: 0.08),
+          ),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w600,
+            color: context.themeTextPrimary,
+          ),
+        ),
+      ),
+    );
   }
 }
