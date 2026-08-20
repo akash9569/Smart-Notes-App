@@ -325,6 +325,24 @@ class _MainScreenState extends State<MainScreen> {
       );
     }
 
+    // Schedule active task reminders
+    for (final t in _tasks) {
+      if (!t.isCompleted) {
+        int numericId = 0;
+        try {
+          numericId = int.parse(t.id.substring(t.id.length - 6)) % 9999;
+        } catch (_) {
+          numericId = t.id.hashCode.abs() % 9999;
+        }
+        NotificationService().scheduleTaskReminders(
+          baseId: numericId,
+          taskTitle: t.title,
+          dueDate: t.dueDateTime,
+          durationMinutes: t.durationMinutes,
+        );
+      }
+    }
+
     if (mounted) setState(() => _isLoading = false);
   }
 

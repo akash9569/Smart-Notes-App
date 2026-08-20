@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../app_theme.dart';
@@ -899,6 +898,18 @@ class _TaskCard extends StatefulWidget {
 class _TaskCardState extends State<_TaskCard> {
   bool _isExpanded = false;
 
+  void _openTaskTimer(BuildContext context, Task t) {
+    showDialog(
+      context: context,
+      builder: (ctx) => _TaskTimerDialog(
+        task: t,
+        onCompleted: (completedTask) {
+          widget.onToggle();
+        },
+      ),
+    );
+  }
+
   Color _getPriorityColor(String p) {
     switch (p.toLowerCase()) {
       case 'urgent':
@@ -1048,6 +1059,23 @@ class _TaskCardState extends State<_TaskCard> {
                               color: const Color(0xFFFDE047),
                             ),
 
+                          // Duration badge
+                          if (t.durationMinutes > 0)
+                            GestureDetector(
+                              onTap: () => _openTaskTimer(context, t),
+                              child: _buildTag(
+                                icon: Icons.timer_outlined,
+                                label: '${t.durationMinutes} min',
+                                color: const Color(0xFF86EFAC),
+                              ),
+                            )
+                          else
+                            _buildTag(
+                              icon: Icons.check_circle_outline_rounded,
+                              label: 'Check-in',
+                              color: context.themeTextSecondary,
+                            ),
+
                           // Recurrence badge
                           if (t.recurrence != 'Once')
                             _buildTag(
@@ -1133,10 +1161,23 @@ class _TaskCardState extends State<_TaskCard> {
                   shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(12)),
                   onSelected: (val) {
+                    if (val == 'timer') _openTaskTimer(context, t);
                     if (val == 'edit') widget.onEdit();
                     if (val == 'delete') widget.onDelete();
                   },
                   itemBuilder: (ctx) => [
+                    if (t.durationMinutes > 0 && !t.isCompleted)
+                      const PopupMenuItem(
+                        value: 'timer',
+                        child: Row(
+                          children: [
+                            Icon(Icons.timer_outlined,
+                                size: 16, color: Color(0xFF86EFAC)),
+                            SizedBox(width: 8),
+                            Text('Focus Timer'),
+                          ],
+                        ),
+                      ),
                     const PopupMenuItem(
                       value: 'edit',
                       child: Row(
@@ -1280,6 +1321,7 @@ class _TaskEditDialogState extends State<_TaskEditDialog> {
   late String _recurrence;
   late List<String> _selectedWeekDays;
   late List<SubTask> _subtasks;
+  late int _durationMinutes;
 
   static const List<String> _priorities = ['Low', 'Medium', 'High', 'Urgent'];
   static const List<String> _categories = [
@@ -1307,6 +1349,8 @@ class _TaskEditDialogState extends State<_TaskEditDialog> {
     'Sun'
   ];
 
+  static const List<int> _durationPresets = [15, 30, 45, 60, 90, 120];
+
   @override
   void initState() {
     super.initState();
@@ -1319,6 +1363,7 @@ class _TaskEditDialogState extends State<_TaskEditDialog> {
     _priority = t?.priority ?? 'Medium';
     _category = t?.category ?? 'General';
     _recurrence = t?.recurrence ?? 'Once';
+    _durationMinutes = t?.durationMinutes ?? 0;
     _selectedWeekDays =
         List<String>.from(t?.selectedWeekDays ?? ['Mon', 'Wed', 'Fri']);
     _subtasks = t?.subTasks
@@ -1409,6 +1454,191 @@ class _TaskEditDialogState extends State<_TaskEditDialog> {
     }
   }
 
+  String _formatDuration(int minutes) {
+    if (minutes <= 0) return 'Untimed / Check-in';
+    final hours = minutes ~/ 60;
+    final mins = minutes % 60;
+    if (hours > 0 && mins > 0) return '${hours}h ${mins}m';
+    if (hours > 0) return '${hours}h';
+    return '${mins}m';
+  }
+
+  void _showCustomDurationPicker() {
+    int h = _durationMinutes ~/ 60;
+    int m = _durationMinutes % 60;
+    if (_durationMinutes == 0) {
+      h = 0;
+      m = 25;
+    }
+
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (context, setPickerState) {
+            return AlertDialog(
+              backgroundColor: context.themeCardBackground,
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(20)),
+              title: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF08A82).withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Icon(Icons.timer_outlined,
+                        color: Color(0xFFF08A82), size: 20),
+                  ),
+                  const SizedBox(width: 10),
+                  Text(
+                    'Set Task Duration',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w800,
+                      color: context.themeTextPrimary,
+                    ),
+                  ),
+                ],
+              ),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    'How long will this task take to complete?',
+                    style: TextStyle(
+                        fontSize: 12.5, color: context.themeTextSecondary),
+                  ),
+                  const SizedBox(height: 20),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      // Hours
+                      Column(
+                        children: [
+                          Text('HOURS',
+                              style: TextStyle(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.bold,
+                                  color: context.themeTextSecondary)),
+                          const SizedBox(height: 6),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 12),
+                            decoration: BoxDecoration(
+                              color: context.themeTextPrimary
+                                  .withValues(alpha: 0.04),
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                  color: context.themeTextPrimary
+                                      .withValues(alpha: 0.1)),
+                            ),
+                            child: DropdownButton<int>(
+                              value: h,
+                              underline: const SizedBox(),
+                              dropdownColor: context.themeCardBackground,
+                              items: List.generate(13, (index) => index)
+                                  .map((val) => DropdownMenuItem(
+                                        value: val,
+                                        child: Text('$val hr',
+                                            style: TextStyle(
+                                                color:
+                                                    context.themeTextPrimary,
+                                                fontWeight: FontWeight.bold)),
+                                      ))
+                                  .toList(),
+                              onChanged: (val) =>
+                                  setPickerState(() => h = val ?? 0),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(width: 16),
+                      // Minutes
+                      Column(
+                        children: [
+                          Text('MINUTES',
+                              style: TextStyle(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.bold,
+                                  color: context.themeTextSecondary)),
+                          const SizedBox(height: 6),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 12),
+                            decoration: BoxDecoration(
+                              color: context.themeTextPrimary
+                                  .withValues(alpha: 0.04),
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                  color: context.themeTextPrimary
+                                      .withValues(alpha: 0.1)),
+                            ),
+                            child: DropdownButton<int>(
+                              value: m,
+                              underline: const SizedBox(),
+                              dropdownColor: context.themeCardBackground,
+                              items: [
+                                0,
+                                5,
+                                10,
+                                15,
+                                20,
+                                25,
+                                30,
+                                35,
+                                40,
+                                45,
+                                50,
+                                55
+                              ]
+                                  .map((val) => DropdownMenuItem(
+                                        value: val,
+                                        child: Text('$val min',
+                                            style: TextStyle(
+                                                color:
+                                                    context.themeTextPrimary,
+                                                fontWeight: FontWeight.bold)),
+                                      ))
+                                  .toList(),
+                              onChanged: (val) =>
+                                  setPickerState(() => m = val ?? 0),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: Text('Cancel',
+                      style: TextStyle(color: context.themeTextSecondary)),
+                ),
+                ElevatedButton(
+                  onPressed: () {
+                    final total = h * 60 + m;
+                    setState(() => _durationMinutes = total);
+                    Navigator.pop(ctx);
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFFF08A82),
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10)),
+                  ),
+                  child: const Text('Set Duration',
+                      style: TextStyle(fontWeight: FontWeight.bold)),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
   String _getAutoNotificationScheduleText() {
     final dateParts = _dueDate.split('-');
     final y = int.tryParse(dateParts[0]) ?? DateTime.now().year;
@@ -1425,30 +1655,45 @@ class _TaskEditDialogState extends State<_TaskEditDialog> {
 
     final target = DateTime(y, m, d, hour, minute);
     final now = DateTime.now();
+    final formattedTime = _dueTime ?? '10:00';
 
-    List<String> list = [];
-    if (target.subtract(const Duration(days: 5)).isAfter(now)) {
-      list.add('5 days before');
-    }
-    if (target.subtract(const Duration(hours: 24)).isAfter(now)) {
-      list.add('24h before');
-    }
-    if (target.subtract(const Duration(hours: 5)).isAfter(now)) {
-      list.add('5h before');
-    }
-    if (target.subtract(const Duration(hours: 1)).isAfter(now)) {
-      list.add('1h before');
-    }
-    if (target.subtract(const Duration(minutes: 30)).isAfter(now)) {
-      list.add('30m before');
-    }
-    if (target.subtract(const Duration(minutes: 10)).isAfter(now)) {
-      list.add('10m before');
-    }
-    if (target.isAfter(now)) list.add('at exact time');
+    if (_durationMinutes > 0) {
+      final endDt = target.add(Duration(minutes: _durationMinutes));
+      final endH = endDt.hour.toString().padLeft(2, '0');
+      final endM = endDt.minute.toString().padLeft(2, '0');
+      final int beforeCompleteOffset =
+          _durationMinutes > 10 ? 5 : (_durationMinutes > 4 ? 2 : 1);
 
-    if (list.isEmpty) return 'Immediate reminder scheduled';
-    return list.join(' • ');
+      List<String> list = [];
+      if (target.subtract(const Duration(minutes: 5)).isAfter(now)) {
+        list.add('5m before start');
+      }
+      if (target.isAfter(now)) {
+        list.add('at start ($formattedTime)');
+      }
+      if (endDt.subtract(Duration(minutes: beforeCompleteOffset)).isAfter(now)) {
+        list.add('$beforeCompleteOffset min before finish');
+      }
+      if (endDt.isAfter(now)) {
+        list.add('when complete ($endH:$endM)');
+      }
+      if (list.isEmpty) {
+        return '5m before • At start ($formattedTime) • When complete ($endH:$endM)';
+      }
+      return list.join(' • ');
+    } else {
+      List<String> list = [];
+      if (target.subtract(const Duration(minutes: 5)).isAfter(now)) {
+        list.add('5m before');
+      }
+      if (target.isAfter(now)) {
+        list.add('at scheduled time ($formattedTime)');
+      }
+      if (list.isEmpty) {
+        return '5m before • At scheduled time ($formattedTime)';
+      }
+      return list.join(' • ');
+    }
   }
 
   @override
@@ -1660,6 +1905,168 @@ class _TaskEditDialogState extends State<_TaskEditDialog> {
                             ),
                           ),
                         ],
+                      ),
+                      const SizedBox(height: 14),
+
+                      // ── How Long (Estimated Duration / Timer) ──
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          _buildFieldLabel('HOW LONG (ESTIMATED DURATION)'),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 8, vertical: 3),
+                            decoration: BoxDecoration(
+                              color: _durationMinutes > 0
+                                  ? const Color(0xFF10B981)
+                                      .withValues(alpha: 0.12)
+                                  : context.themeTextPrimary
+                                      .withValues(alpha: 0.06),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Text(
+                              _formatDuration(_durationMinutes),
+                              style: TextStyle(
+                                color: _durationMinutes > 0
+                                    ? const Color(0xFF10B981)
+                                    : context.themeTextSecondary,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 11,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        child: Row(
+                          children: [
+                            // Untimed preset
+                            GestureDetector(
+                              onTap: () => setState(() => _durationMinutes = 0),
+                              child: Container(
+                                margin: const EdgeInsets.only(right: 6),
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 10, vertical: 6),
+                                decoration: BoxDecoration(
+                                  color: _durationMinutes == 0
+                                      ? const Color(0xFFF08A82)
+                                      : context.themeTextPrimary
+                                          .withValues(alpha: 0.04),
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(
+                                    color: _durationMinutes == 0
+                                        ? const Color(0xFFF08A82)
+                                        : context.themeTextPrimary
+                                            .withValues(alpha: 0.08),
+                                  ),
+                                ),
+                                child: Text(
+                                  'Untimed',
+                                  style: TextStyle(
+                                    fontSize: 11.5,
+                                    fontWeight: FontWeight.bold,
+                                    color: _durationMinutes == 0
+                                        ? Colors.white
+                                        : context.themeTextPrimary,
+                                  ),
+                                ),
+                              ),
+                            ),
+                            // Preset minute chips
+                            ..._durationPresets.map((m) {
+                              final isSel = _durationMinutes == m;
+                              return GestureDetector(
+                                onTap: () => setState(() => _durationMinutes = m),
+                                child: Container(
+                                  margin: const EdgeInsets.only(right: 6),
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 10, vertical: 6),
+                                  decoration: BoxDecoration(
+                                    color: isSel
+                                        ? const Color(0xFFF08A82)
+                                        : context.themeTextPrimary
+                                            .withValues(alpha: 0.04),
+                                    borderRadius: BorderRadius.circular(8),
+                                    border: Border.all(
+                                      color: isSel
+                                          ? const Color(0xFFF08A82)
+                                          : context.themeTextPrimary
+                                              .withValues(alpha: 0.08),
+                                    ),
+                                  ),
+                                  child: Text(
+                                    '${m}m',
+                                    style: TextStyle(
+                                      fontSize: 11.5,
+                                      fontWeight: FontWeight.bold,
+                                      color: isSel
+                                          ? Colors.white
+                                          : context.themeTextPrimary,
+                                    ),
+                                  ),
+                                ),
+                              );
+                            }),
+                            // Custom duration button
+                            GestureDetector(
+                              onTap: _showCustomDurationPicker,
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 10, vertical: 6),
+                                decoration: BoxDecoration(
+                                  color: !_durationPresets
+                                              .contains(_durationMinutes) &&
+                                          _durationMinutes > 0
+                                      ? const Color(0xFFF08A82)
+                                      : context.themeTextPrimary
+                                          .withValues(alpha: 0.04),
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(
+                                    color: !_durationPresets
+                                                .contains(_durationMinutes) &&
+                                            _durationMinutes > 0
+                                        ? const Color(0xFFF08A82)
+                                        : const Color(0xFFF08A82)
+                                            .withValues(alpha: 0.4),
+                                  ),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(
+                                      Icons.tune_rounded,
+                                      size: 13,
+                                      color: !_durationPresets
+                                                  .contains(_durationMinutes) &&
+                                              _durationMinutes > 0
+                                          ? Colors.white
+                                          : const Color(0xFFF08A82),
+                                    ),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      !_durationPresets
+                                                  .contains(_durationMinutes) &&
+                                              _durationMinutes > 0
+                                          ? _formatDuration(_durationMinutes)
+                                          : 'Custom...',
+                                      style: TextStyle(
+                                        fontSize: 11.5,
+                                        fontWeight: FontWeight.bold,
+                                        color: !_durationPresets
+                                                    .contains(_durationMinutes) &&
+                                                _durationMinutes > 0
+                                            ? Colors.white
+                                            : const Color(0xFFF08A82),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                       const SizedBox(height: 14),
 
@@ -1971,6 +2378,7 @@ class _TaskEditDialogState extends State<_TaskEditDialog> {
                           priority: _priority,
                           dueDate: _dueDate,
                           dueTime: _dueTime,
+                          durationMinutes: _durationMinutes,
                           recurrence: _recurrence,
                           selectedWeekDays: _selectedWeekDays,
                           isCompleted: widget.task?.isCompleted ?? false,
@@ -2086,6 +2494,235 @@ class _TaskEditDialogState extends State<_TaskEditDialog> {
             );
           }).toList(),
           onChanged: onChanged,
+        ),
+      ),
+    );
+  }
+}
+
+// ─── TASK FOCUS TIMER MODAL ──────────────────────────────────────────────────
+class _TaskTimerDialog extends StatefulWidget {
+  final Task task;
+  final Function(Task) onCompleted;
+
+  const _TaskTimerDialog({
+    required this.task,
+    required this.onCompleted,
+  });
+
+  @override
+  State<_TaskTimerDialog> createState() => _TaskTimerDialogState();
+}
+
+class _TaskTimerDialogState extends State<_TaskTimerDialog> {
+  late int _remainingSeconds;
+  late int _totalSeconds;
+  Timer? _timer;
+  bool _isRunning = false;
+  bool _isCompleted = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final duration =
+        widget.task.durationMinutes > 0 ? widget.task.durationMinutes : 25;
+    _totalSeconds = duration * 60;
+    _remainingSeconds = _totalSeconds;
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  void _startTimer() {
+    _timer?.cancel();
+    setState(() => _isRunning = true);
+    _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (_remainingSeconds > 0) {
+        setState(() => _remainingSeconds--);
+      } else {
+        _timer?.cancel();
+        setState(() {
+          _isRunning = false;
+          _isCompleted = true;
+        });
+      }
+    });
+  }
+
+  void _pauseTimer() {
+    _timer?.cancel();
+    setState(() => _isRunning = false);
+  }
+
+  void _resetTimer() {
+    _timer?.cancel();
+    setState(() {
+      _remainingSeconds = _totalSeconds;
+      _isRunning = false;
+      _isCompleted = false;
+    });
+  }
+
+  String _formatTime(int totalSecs) {
+    final m = (totalSecs ~/ 60).toString().padLeft(2, '0');
+    final s = (totalSecs % 60).toString().padLeft(2, '0');
+    return '$m:$s';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final progress = _totalSeconds > 0
+        ? (_totalSeconds - _remainingSeconds) / _totalSeconds
+        : 0.0;
+
+    return Dialog(
+      backgroundColor: context.themeCardBackground,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF08A82).withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: const Icon(Icons.timer_rounded,
+                          color: Color(0xFFF08A82), size: 18),
+                    ),
+                    const SizedBox(width: 10),
+                    Text(
+                      'Task Focus Timer',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w800,
+                        color: context.themeTextPrimary,
+                      ),
+                    ),
+                  ],
+                ),
+                IconButton(
+                  icon: const Icon(Icons.close_rounded, size: 20),
+                  onPressed: () => Navigator.pop(context),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Text(
+              widget.task.title,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.w700,
+                color: context.themeTextPrimary,
+              ),
+            ),
+            const SizedBox(height: 24),
+            Stack(
+              alignment: Alignment.center,
+              children: [
+                SizedBox(
+                  width: 180,
+                  height: 180,
+                  child: CircularProgressIndicator(
+                    value: progress,
+                    strokeWidth: 8,
+                    backgroundColor:
+                        context.themeTextPrimary.withValues(alpha: 0.08),
+                    valueColor: AlwaysStoppedAnimation<Color>(
+                      _isCompleted
+                          ? const Color(0xFF10B981)
+                          : const Color(0xFFF08A82),
+                    ),
+                  ),
+                ),
+                Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      _formatTime(_remainingSeconds),
+                      style: TextStyle(
+                        fontSize: 34,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: -1,
+                        color: context.themeTextPrimary,
+                        fontFeatures: const [FontFeature.tabularFigures()],
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      _isCompleted
+                          ? 'Session Complete!'
+                          : (_isRunning ? 'Focusing...' : 'Paused'),
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: _isCompleted
+                            ? const Color(0xFF10B981)
+                            : context.themeTextSecondary,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+            const SizedBox(height: 28),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                IconButton.filledTonal(
+                  onPressed: _resetTimer,
+                  icon: const Icon(Icons.refresh_rounded),
+                  tooltip: 'Reset',
+                ),
+                const SizedBox(width: 16),
+                ElevatedButton.icon(
+                  onPressed: _isRunning ? _pauseTimer : _startTimer,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFFF08A82),
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 24, vertical: 12),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14)),
+                  ),
+                  icon: Icon(_isRunning
+                      ? Icons.pause_rounded
+                      : Icons.play_arrow_rounded),
+                  label: Text(_isRunning ? 'Pause' : 'Start'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: () {
+                  widget.onCompleted(widget.task);
+                  Navigator.pop(context);
+                },
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: const Color(0xFF10B981),
+                  side: const BorderSide(color: Color(0xFF10B981)),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12)),
+                ),
+                icon: const Icon(Icons.check_circle_outline_rounded, size: 18),
+                label: const Text('Mark Task Completed',
+                    style: TextStyle(fontWeight: FontWeight.bold)),
+              ),
+            ),
+          ],
         ),
       ),
     );
